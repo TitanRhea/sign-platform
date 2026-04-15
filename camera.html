@@ -7,10 +7,8 @@
         body { font-family: 'Segoe UI', sans-serif; background: #eef2f3; text-align: center; padding: 20px; }
         .container { background: white; max-width: 700px; margin: auto; padding: 25px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
         h2 { color: #2c3e50; }
-        /* Μεγαλώσαμε λίγο τον καμβά για να βλέπεις καλύτερα τον "σκελετό" */
         #canvas { border-radius: 15px; border: 4px solid #34495e; background: #000; width: 400px; height: 400px; object-fit: cover; }
-        #main-result { font-size: 32px; margin-top: 15px; color: #27ae60; font-weight: bold; min-height: 45px; }
-        #debug-container { margin-top: 15px; font-size: 14px; color: #7f8c8d; text-align: left; background: #f8f9fa; padding: 10px; border-radius: 10px; display: inline-block; width: 80%; }
+        #main-result { font-size: 32px; margin-top: 20px; color: #27ae60; font-weight: bold; min-height: 45px; background: #f8f9fa; padding: 15px; border-radius: 10px; }
         .back-btn { margin-top: 20px; padding: 10px 20px; background: #95a5a6; color: white; border: none; border-radius: 10px; cursor: pointer; text-decoration: none; display: inline-block; }
         .voice-select { margin-bottom: 15px; padding: 8px; border-radius: 5px; font-size: 16px; }
         button.start-btn { padding: 15px 30px; font-size: 18px; background: #27ae60; color: white; border: none; border-radius: 10px; cursor: pointer; transition: 0.3s; }
@@ -20,7 +18,7 @@
 <body>
 
 <div class="container">
-    <h2>📸 Live Αναγνώριση Σώματος & Νοηματικής</h2>
+    <h2>📸 Live Αναγνώριση</h2>
     
     <select id="voice-type" class="voice-select">
         <option value="female">Γυναικεία Φωνή</option>
@@ -31,8 +29,6 @@
     <div><canvas id="canvas" width="400" height="400"></canvas></div>
     
     <div id="main-result">Πατήστε Έναρξη</div>
-    
-    <div id="debug-container"></div>
     
     <br>
     <button class="start-btn" onclick="init()">▶ Έναρξη Κάμερας</button>
@@ -50,15 +46,14 @@
     let lastPlayedTime = 0;
 
     async function init() {
-        document.getElementById("main-result").innerText = "Φόρτωση AI (Παρακαλώ περιμένετε)...";
+        document.getElementById("main-result").innerText = "Φόρτωση AI...";
         const modelURL = URL + "model.json";
         const metadataURL = URL + "metadata.json";
 
         model = await tmPose.load(modelURL, metadataURL);
         maxPredictions = model.getTotalClasses();
 
-        // Ρυθμίσεις Κάμερας
-        const size = 400; // Μεγαλύτερη ανάλυση
+        const size = 400; 
         const flip = true; 
         webcam = new tmPose.Webcam(size, size, flip); 
         await webcam.setup(); 
@@ -67,13 +62,6 @@
 
         const canvas = document.getElementById("canvas");
         ctx = canvas.getContext("2d");
-        
-        // Προετοιμασία του πίνακα με τα ποσοστά
-        const debugContainer = document.getElementById("debug-container");
-        debugContainer.innerHTML = "";
-        for (let i = 0; i < maxPredictions; i++) { 
-            debugContainer.appendChild(document.createElement("div"));
-        }
     }
 
     async function loop(timestamp) {
@@ -88,25 +76,69 @@
 
         let bestName = "";
         let bestProb = 0;
-        const debugContainer = document.getElementById("debug-container");
 
-        // Ενημέρωση ποσοστών και εύρεση καλύτερης λέξης
         for (let i = 0; i < maxPredictions; i++) {
-            const classPrediction = prediction[i].className + ": " + (prediction[i].probability * 100).toFixed(0) + "%";
-            debugContainer.childNodes[i].innerHTML = classPrediction;
-
             if (prediction[i].probability > bestProb) {
                 bestProb = prediction[i].probability;
                 bestName = prediction[i].className;
             }
         }
 
-        // Αν είναι σίγουρο πάνω από 85% (κατεβάσαμε λίγο το όριο για να "πιάνει" πιο εύκολα)
-        if (bestProb > 0.85) { 
-            document.getElementById("main-result").innerText = bestName;
+        let isValid = false;
+        let label = bestName.toLowerCase();
+
+        // Εφαρμογή των Δικλείδων Ασφαλείας (Αν υπάρχει σκελετός και σιγουριά 85%+)
+        if (bestProb > 0.85 && pose && pose.keypoints) {
+            
+            // Βρίσκουμε τα σημεία του σώματος
+            const getPart = (name) => pose.keypoints.find(k => k.part === name);
+            const isVis = (p) => p && p.score > 0.4; // Πρέπει να φαίνεται καθαρά
+
+            const nose = getPart('nose');
+            const rWrist = getPart('rightWrist');
+            const lWrist = getPart('leftWrist');
+            const rElbow = getPart('rightElbow');
+            const lElbow = getPart('leftElbow');
+            const rShoulder = getPart('rightShoulder');
+
+            // ΚΑΝΟΝΑΣ 1: Καλό Μεσημέρι (Καρπός κοντά στο πηγούνι/μύτη)
+            if (label.includes("mesimeri") || label.includes("μεσημερι")) {
+                if (isVis(rWrist) && isVis(nose)) {
+                    // Απόσταση y μικρότερη από 150 pixels
+                    if (Math.abs(rWrist.position.y - nose.position.y) < 150) isValid = true;
+                }
+            }
+            // ΚΑΝΟΝΑΣ 2: Ευχαριστώ (Και τα δύο χέρια ψηλά)
+            else if (label.includes("efharisto") || label.includes("ευχαριστω")) {
+                if (isVis(rWrist) && isVis(lWrist) && isVis(rElbow) && isVis(lElbow)) {
+                    // Στο canvas το y=0 είναι πάνω, άρα μικρότερο y σημαίνει πιο ψηλά
+                    if (rWrist.position.y < rElbow.position.y && lWrist.position.y < lElbow.position.y) isValid = true;
+                }
+            }
+            // ΚΑΝΟΝΑΣ 3: Όνομα (Και τα δύο χέρια ορατά μπροστά)
+            else if (label.includes("onoma") || label.includes("ονομα")) {
+                if (isVis(rWrist) && isVis(lWrist)) isValid = true;
+            }
+            // ΚΑΝΟΝΑΣ 4: Γεια / Καλημέρα (Το χέρι ψηλά πάνω από τον ώμο/αγκώνα)
+            else if (label.includes("geia") || label.includes("γεια") || label.includes("kalimera") || label.includes("καλημερα")) {
+                if (isVis(rWrist) && isVis(rShoulder)) {
+                    if (rWrist.position.y < rShoulder.position.y + 50) isValid = true;
+                } else if (isVis(lWrist) && isVis(rShoulder)) { // Σε περίπτωση που χρησιμοποιεί το αριστερό
+                    if (lWrist.position.y < rShoulder.position.y + 50) isValid = true;
+                }
+            }
+            // Αν είναι κάτι άλλο, απλά δέξου το
+            else {
+                isValid = true;
+            }
+        }
+
+        // Εμφάνιση αποτελέσματος ΜΟΝΟ αν περάσει τον έλεγχο
+        if (isValid) {
+            document.getElementById("main-result").innerText = "Αναγνώριση: " + bestName;
             handleAudio(bestName);
         } else {
-            document.getElementById("main-result").innerText = "Περιμένω καθαρή κίνηση...";
+            document.getElementById("main-result").innerText = "Κάνε μια κίνηση...";
         }
 
         drawPose(pose);
@@ -125,14 +157,13 @@
 
     function handleAudio(label) {
         let currentTime = Date.now();
-        // Περιμένουμε 3.5 δευτερόλεπτα πριν ξαναπαίξει ήχο για να μη γίνεται φασαρία
+        // Ξαναπαίζει τον ήχο μόνο αν έχουν περάσει 3.5 δευτερόλεπτα
         if (label !== lastPlayedLabel || (currentTime - lastPlayedTime > 3500)) {
             const voice = document.getElementById("voice-type").value;
-            // Μετατροπή: Π.χ. "KALIMERA" -> "kalimera.female.wav"
             let fileName = label.toLowerCase().replace(/ /g, "_") + "." + voice + ".wav";
             
             let audio = new Audio(fileName);
-            audio.play().catch(e => console.log("Απαιτείται κλικ για τον ήχο"));
+            audio.play().catch(e => console.log("Απαιτείται κλικ..."));
             
             lastPlayedLabel = label;
             lastPlayedTime = currentTime;
