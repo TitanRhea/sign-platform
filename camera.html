@@ -7,10 +7,10 @@
         body { font-family: 'Segoe UI', sans-serif; background: #eef2f3; text-align: center; padding: 20px; }
         .container { background: white; max-width: 700px; margin: auto; padding: 25px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
         h2 { color: #2c3e50; }
-        /* Καθαρό βίντεο, σαν καθρέφτης, με στρογγυλεμένες γωνίες */
-        #webcam-container { border-radius: 15px; border: 4px solid #34495e; overflow: hidden; display: inline-block; line-height: 0; width: 400px; height: 400px; }
+        /* Καθαρό βίντεο, σαν καθρέφτης */
+        #webcam-container { border-radius: 15px; border: 4px solid #34495e; overflow: hidden; display: inline-block; line-height: 0; width: 400px; height: 400px; background: #000; }
         #webcam-container canvas { width: 100% !important; height: 100% !important; object-fit: cover; }
-        #main-result { font-size: 32px; margin-top: 20px; color: #27ae60; font-weight: bold; min-height: 45px; background: #f8f9fa; padding: 15px; border-radius: 10px; }
+        #status-indicator { font-size: 20px; margin-top: 20px; color: #27ae60; font-weight: bold; min-height: 30px; }
         .back-btn { margin-top: 20px; padding: 10px 20px; background: #95a5a6; color: white; border: none; border-radius: 10px; cursor: pointer; text-decoration: none; display: inline-block; }
         .voice-select { margin-bottom: 15px; padding: 8px; border-radius: 5px; font-size: 16px; }
         button.start-btn { padding: 15px 30px; font-size: 18px; background: #27ae60; color: white; border: none; border-radius: 10px; cursor: pointer; transition: 0.3s; }
@@ -30,7 +30,7 @@
 
     <div id="webcam-container"></div>
     
-    <div id="main-result">Πατήστε Έναρξη</div>
+    <div id="status-indicator">Πατήστε Έναρξη...</div>
     
     <br>
     <button class="start-btn" onclick="init()">▶ Έναρξη Κάμερας</button>
@@ -42,13 +42,14 @@
 <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
 
 <script>
-    const URL = "https://teachablemachine.withgoogle.com/models/og7WNpa1A/";
+    // ΤΟ LINK ΣΟΥ (Πρέπει να ενημερώσεις το μοντέλο σου με τις υπόλοιπες λέξεις)
+    const URL = "https://teachablemachine.withgoogle.com/models/OqMO3BJRJ/";
     let model, webcam, maxPredictions;
     let lastPlayedLabel = "";
     let lastPlayedTime = 0;
 
     async function init() {
-        document.getElementById("main-result").innerText = "Φόρτωση AI...";
+        document.getElementById("status-indicator").innerText = "Φόρτωση AI (Παρακαλώ περιμένετε)...";
         const modelURL = URL + "model.json";
         const metadataURL = URL + "metadata.json";
 
@@ -63,8 +64,10 @@
         window.requestAnimationFrame(loop);
 
         const container = document.getElementById("webcam-container");
-        container.innerHTML = ""; // Καθαρίζουμε το container
-        container.appendChild(webcam.canvas); // Βάζουμε το καθαρό βίντεο μέσα
+        container.innerHTML = ""; 
+        container.appendChild(webcam.canvas); 
+        
+        document.getElementById("status-indicator").innerText = "🟢 Η κάμερα είναι ενεργή. Κάνε μια κίνηση.";
     }
 
     async function loop(timestamp) {
@@ -87,24 +90,30 @@
             }
         }
 
-        // Αν είναι σίγουρο πάνω από 85% ΚΑΙ δεν είναι η κλάση Background
-        if (bestProb > 0.85 && bestName.toLowerCase() !== "background") {
-            document.getElementById("main-result").innerText = "Αναγνώριση: " + bestName;
+        let label = bestName.toLowerCase();
+
+        // ΕΛΕΓΧΟΣ: Σιγουριά ΠΑΝΩ ΑΠΟ 85% και ΟΧΙ "Background"
+        if (bestProb > 0.85 && label !== "background" && label !== "τίποτα") {
+            // Δεν γράφουμε τίποτα στην οθόνη! Πάμε κατευθείαν στον ήχο:
             handleAudio(bestName);
-        } else {
-            document.getElementById("main-result").innerText = "Κάνε μια κίνηση...";
         }
     }
 
     function handleAudio(label) {
         let currentTime = Date.now();
-        // Παιζει ήχο κάθε 3.5 δευτερόλεπτα για να μην κολλάει
+        
+        // Περιμένει 3.5 δευτερόλεπτα πριν ξαναπαίξει ήχο
         if (label !== lastPlayedLabel || (currentTime - lastPlayedTime > 3500)) {
             const voice = document.getElementById("voice-type").value;
-            let fileName = label.toLowerCase().replace(/ /g, "_") + "." + voice + ".wav";
+            
+            // Καθαρίζει το όνομα για να βρει το σωστό αρχείο .wav
+            // π.χ. Αν η κλάση λέγεται "kalo mesimeri", θα ψάξει "kalo_mesimeri.female.wav"
+            // Αν λέγεται "poio.einai.to.onoma.sou", θα ψάξει "poio_einai_to_onoma_sou.female.wav"
+            let cleanLabel = label.toLowerCase().replace(/ /g, "_").replace(/\./g, "_");
+            let fileName = cleanLabel + "." + voice + ".wav";
             
             let audio = new Audio(fileName);
-            audio.play().catch(e => console.log("Χρειάζεται κλικ για να παίξει ο ήχος..."));
+            audio.play().catch(e => console.log("Χρειάζεται κλικ στην οθόνη για να ακουστεί ο ήχος."));
             
             lastPlayedLabel = label;
             lastPlayedTime = currentTime;
