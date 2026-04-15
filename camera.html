@@ -2,19 +2,37 @@
 <html lang="el">
 <head>
     <meta charset="UTF-8">
-    <title>SignAI | Live Αναγνώριση</title>
+    <title>SignAI | Live Recognition</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #eef2f3; text-align: center; padding: 20px; }
-        .container { background: white; max-width: 700px; margin: auto; padding: 25px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
-        h2 { color: #2c3e50; }
-        /* Καθαρό βίντεο, σαν καθρέφτης */
-        #webcam-container { border-radius: 15px; border: 4px solid #34495e; overflow: hidden; display: inline-block; line-height: 0; width: 400px; height: 400px; background: #000; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0e6dc; text-align: center; padding: 20px; margin: 0; }
+        .container { background: white; max-width: 600px; margin: 50px auto; padding: 30px; border-radius: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        h2 { color: #333; margin-bottom: 20px; }
+        
+        /* Καθαρή εμφάνιση κάμερας χωρίς περιττά στοιχεία */
+        #webcam-container { 
+            border-radius: 20px; 
+            border: 6px solid #4CAF50; 
+            overflow: hidden; 
+            display: inline-block; 
+            line-height: 0; 
+            width: 400px; 
+            height: 400px; 
+            background: #000;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
         #webcam-container canvas { width: 100% !important; height: 100% !important; object-fit: cover; }
-        #status-indicator { font-size: 20px; margin-top: 20px; color: #27ae60; font-weight: bold; min-height: 30px; }
-        .back-btn { margin-top: 20px; padding: 10px 20px; background: #95a5a6; color: white; border: none; border-radius: 10px; cursor: pointer; text-decoration: none; display: inline-block; }
-        .voice-select { margin-bottom: 15px; padding: 8px; border-radius: 5px; font-size: 16px; }
-        button.start-btn { padding: 15px 30px; font-size: 18px; background: #27ae60; color: white; border: none; border-radius: 10px; cursor: pointer; transition: 0.3s; }
-        button.start-btn:hover { background: #219653; }
+        
+        #status { font-size: 18px; margin-top: 15px; color: #666; font-weight: 500; }
+        .controls { margin-top: 25px; }
+        
+        button { 
+            padding: 15px 35px; font-size: 18px; border-radius: 50px; border: none; 
+            cursor: pointer; background: #4CAF50; color: white; font-weight: bold; transition: 0.3s;
+        }
+        button:hover { background: #45a049; transform: scale(1.05); }
+        
+        .back-link { display: inline-block; margin-top: 20px; color: #888; text-decoration: none; font-size: 14px; }
+        .voice-select { margin-bottom: 20px; padding: 10px; border-radius: 10px; border: 1px solid #ddd; }
     </style>
 </head>
 <body>
@@ -26,59 +44,57 @@
         <option value="female">Γυναικεία Φωνή</option>
         <option value="male">Αντρική Φωνή</option>
     </select>
-    <br>
 
     <div id="webcam-container"></div>
     
-    <div id="status-indicator">Πατήστε Έναρξη...</div>
+    <div id="status">Περιμένω την έναρξη...</div>
+
+    <div class="controls">
+        <button onclick="init()">Ενεργοποίηση Κάμερας</button>
+    </div>
     
-    <br>
-    <button class="start-btn" onclick="init()">▶ Έναρξη Κάμερας</button>
-    <br>
-    <a href="index.html" class="back-btn">⬅ Επιστροφή στο Menu</a>
+    <a href="index.html" class="back-link">⬅ Επιστροφή στο κεντρικό μενού</a>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
 
 <script>
-    // ΤΟ LINK ΣΟΥ (Πρέπει να ενημερώσεις το μοντέλο σου με τις υπόλοιπες λέξεις)
-    const URL = "https://teachablemachine.withgoogle.com/models/OqMO3BJRJ/";
+    // Σύνδεσμος προς το νέο Image Model
+    const URL = "https://teachablemachine.withgoogle.com/models/a1pcBq62k/";
+    
     let model, webcam, maxPredictions;
     let lastPlayedLabel = "";
     let lastPlayedTime = 0;
 
     async function init() {
-        document.getElementById("status-indicator").innerText = "Φόρτωση AI (Παρακαλώ περιμένετε)...";
+        document.getElementById("status").innerText = "Φόρτωση συστήματος...";
         const modelURL = URL + "model.json";
         const metadataURL = URL + "metadata.json";
 
-        model = await tmPose.load(modelURL, metadataURL);
+        model = await tmImage.load(modelURL, metadataURL);
         maxPredictions = model.getTotalClasses();
 
-        const size = 400; 
         const flip = true; 
-        webcam = new tmPose.Webcam(size, size, flip); 
+        webcam = new tmImage.Webcam(400, 400, flip); 
         await webcam.setup(); 
         await webcam.play();
         window.requestAnimationFrame(loop);
 
         const container = document.getElementById("webcam-container");
         container.innerHTML = ""; 
-        container.appendChild(webcam.canvas); 
-        
-        document.getElementById("status-indicator").innerText = "🟢 Η κάμερα είναι ενεργή. Κάνε μια κίνηση.";
+        container.appendChild(webcam.canvas);
+        document.getElementById("status").innerText = "Σύστημα Ενεργό";
     }
 
-    async function loop(timestamp) {
+    async function loop() {
         webcam.update(); 
         await predict();
         window.requestAnimationFrame(loop);
     }
 
     async function predict() {
-        const { posenetOutput } = await model.estimatePose(webcam.canvas);
-        const prediction = await model.predict(posenetOutput);
+        const prediction = await model.predict(webcam.canvas);
 
         let bestName = "";
         let bestProb = 0;
@@ -90,11 +106,9 @@
             }
         }
 
-        let label = bestName.toLowerCase();
-
-        // ΕΛΕΓΧΟΣ: Σιγουριά ΠΑΝΩ ΑΠΟ 85% και ΟΧΙ "Background"
-        if (bestProb > 0.85 && label !== "background" && label !== "τίποτα") {
-            // Δεν γράφουμε τίποτα στην οθόνη! Πάμε κατευθείαν στον ήχο:
+        // Έλεγχος: Ακρίβεια > 85% και αποκλεισμός της κλάσης Background
+        if (bestProb > 0.85 && bestName.toLowerCase() !== "background") {
+            // Δεν εμφανίζουμε κείμενο, καλούμε μόνο τη συνάρτηση ήχου
             handleAudio(bestName);
         }
     }
@@ -102,18 +116,17 @@
     function handleAudio(label) {
         let currentTime = Date.now();
         
-        // Περιμένει 3.5 δευτερόλεπτα πριν ξαναπαίξει ήχο
+        // Χρονική δικλείδα 3.5 δευτερολέπτων για να μην επαναλαμβάνεται ο ήχος συνεχόμενα
         if (label !== lastPlayedLabel || (currentTime - lastPlayedTime > 3500)) {
             const voice = document.getElementById("voice-type").value;
             
-            // Καθαρίζει το όνομα για να βρει το σωστό αρχείο .wav
-            // π.χ. Αν η κλάση λέγεται "kalo mesimeri", θα ψάξει "kalo_mesimeri.female.wav"
-            // Αν λέγεται "poio.einai.to.onoma.sou", θα ψάξει "poio_einai_to_onoma_sou.female.wav"
+            // Μετατροπή ονόματος κλάσης σε όνομα αρχείου ήχου
+            // π.χ. "Geia" -> "geia.female.wav"
             let cleanLabel = label.toLowerCase().replace(/ /g, "_").replace(/\./g, "_");
             let fileName = cleanLabel + "." + voice + ".wav";
             
             let audio = new Audio(fileName);
-            audio.play().catch(e => console.log("Χρειάζεται κλικ στην οθόνη για να ακουστεί ο ήχος."));
+            audio.play().catch(e => console.log("Απαιτείται κλικ για την αναπαραγωγή ήχου."));
             
             lastPlayedLabel = label;
             lastPlayedTime = currentTime;
