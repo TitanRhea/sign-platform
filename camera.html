@@ -2,21 +2,25 @@
 <html lang="el">
 <head>
     <meta charset="UTF-8">
-    <title>SignAI | Live Recognition</title>
+    <title>SignAI | Live Αναγνώριση</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #eef2f3; text-align: center; padding: 20px; }
         .container { background: white; max-width: 700px; margin: auto; padding: 25px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
         h2 { color: #2c3e50; }
-        #webcam-container { background: #000; border-radius: 15px; overflow: hidden; display: inline-block; line-height: 0; }
-        #label-container { font-size: 30px; margin-top: 20px; color: #27ae60; font-weight: bold; min-height: 45px; }
+        /* Μεγαλώσαμε λίγο τον καμβά για να βλέπεις καλύτερα τον "σκελετό" */
+        #canvas { border-radius: 15px; border: 4px solid #34495e; background: #000; width: 400px; height: 400px; object-fit: cover; }
+        #main-result { font-size: 32px; margin-top: 15px; color: #27ae60; font-weight: bold; min-height: 45px; }
+        #debug-container { margin-top: 15px; font-size: 14px; color: #7f8c8d; text-align: left; background: #f8f9fa; padding: 10px; border-radius: 10px; display: inline-block; width: 80%; }
         .back-btn { margin-top: 20px; padding: 10px 20px; background: #95a5a6; color: white; border: none; border-radius: 10px; cursor: pointer; text-decoration: none; display: inline-block; }
-        .voice-select { margin-bottom: 15px; padding: 8px; border-radius: 5px; }
+        .voice-select { margin-bottom: 15px; padding: 8px; border-radius: 5px; font-size: 16px; }
+        button.start-btn { padding: 15px 30px; font-size: 18px; background: #27ae60; color: white; border: none; border-radius: 10px; cursor: pointer; transition: 0.3s; }
+        button.start-btn:hover { background: #219653; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>📸 Live Αναγνώριση</h2>
+    <h2>📸 Live Αναγνώριση Σώματος & Νοηματικής</h2>
     
     <select id="voice-type" class="voice-select">
         <option value="female">Γυναικεία Φωνή</option>
@@ -24,11 +28,14 @@
     </select>
     <br>
 
-    <div id="webcam-container"></div>
-    <div id="label-container">Φόρτωση...</div>
+    <div><canvas id="canvas" width="400" height="400"></canvas></div>
+    
+    <div id="main-result">Πατήστε Έναρξη</div>
+    
+    <div id="debug-container"></div>
     
     <br>
-    <button onclick="init()" style="padding:15px 30px; font-size:18px; background:#27ae60; color:white; border:none; border-radius:10px; cursor:pointer;">Έναρξη Κάμερας</button>
+    <button class="start-btn" onclick="init()">▶ Έναρξη Κάμερας</button>
     <br>
     <a href="index.html" class="back-btn">⬅ Επιστροφή στο Menu</a>
 </div>
@@ -38,30 +45,39 @@
 
 <script>
     const URL = "https://teachablemachine.withgoogle.com/models/og7WNpa1A/";
-    let model, webcam, labelContainer, maxPredictions;
+    let model, webcam, ctx, maxPredictions;
     let lastPlayedLabel = "";
     let lastPlayedTime = 0;
 
     async function init() {
-        document.getElementById("label-container").innerText = "Εκκίνηση AI...";
+        document.getElementById("main-result").innerText = "Φόρτωση AI (Παρακαλώ περιμένετε)...";
         const modelURL = URL + "model.json";
         const metadataURL = URL + "metadata.json";
 
         model = await tmPose.load(modelURL, metadataURL);
         maxPredictions = model.getTotalClasses();
 
-        webcam = new tmPose.Webcam(480, 480, true); 
-        await webcam.setup();
+        // Ρυθμίσεις Κάμερας
+        const size = 400; // Μεγαλύτερη ανάλυση
+        const flip = true; 
+        webcam = new tmPose.Webcam(size, size, flip); 
+        await webcam.setup(); 
         await webcam.play();
         window.requestAnimationFrame(loop);
 
-        document.getElementById("webcam-container").innerHTML = "";
-        document.getElementById("webcam-container").appendChild(webcam.canvas);
-        labelContainer = document.getElementById("label-container");
+        const canvas = document.getElementById("canvas");
+        ctx = canvas.getContext("2d");
+        
+        // Προετοιμασία του πίνακα με τα ποσοστά
+        const debugContainer = document.getElementById("debug-container");
+        debugContainer.innerHTML = "";
+        for (let i = 0; i < maxPredictions; i++) { 
+            debugContainer.appendChild(document.createElement("div"));
+        }
     }
 
-    async function loop() {
-        webcam.update();
+    async function loop(timestamp) {
+        webcam.update(); 
         await predict();
         window.requestAnimationFrame(loop);
     }
@@ -72,32 +88,51 @@
 
         let bestName = "";
         let bestProb = 0;
+        const debugContainer = document.getElementById("debug-container");
 
+        // Ενημέρωση ποσοστών και εύρεση καλύτερης λέξης
         for (let i = 0; i < maxPredictions; i++) {
+            const classPrediction = prediction[i].className + ": " + (prediction[i].probability * 100).toFixed(0) + "%";
+            debugContainer.childNodes[i].innerHTML = classPrediction;
+
             if (prediction[i].probability > bestProb) {
                 bestProb = prediction[i].probability;
                 bestName = prediction[i].className;
             }
         }
 
-        if (bestProb > 0.90) { // 90% σιγουριά
-            labelContainer.innerText = bestName;
+        // Αν είναι σίγουρο πάνω από 85% (κατεβάσαμε λίγο το όριο για να "πιάνει" πιο εύκολα)
+        if (bestProb > 0.85) { 
+            document.getElementById("main-result").innerText = bestName;
             handleAudio(bestName);
         } else {
-            labelContainer.innerText = "Κάνε μια κίνηση...";
+            document.getElementById("main-result").innerText = "Περιμένω καθαρή κίνηση...";
+        }
+
+        drawPose(pose);
+    }
+
+    function drawPose(pose) {
+        if (webcam.canvas) {
+            ctx.drawImage(webcam.canvas, 0, 0);
+            if (pose) {
+                const minPartConfidence = 0.5;
+                tmPose.drawKeypoints(pose.keypoints, minPartConfidence, ctx);
+                tmPose.drawSkeleton(pose.keypoints, minPartConfidence, ctx);
+            }
         }
     }
 
     function handleAudio(label) {
         let currentTime = Date.now();
-        // Παίζει ήχο μόνο αν άλλαξε η λέξη Ή αν πέρασαν 3 δευτερόλεπτα (για να μην "κολλάει" ο ήχος)
-        if (label !== lastPlayedLabel || (currentTime - lastPlayedTime > 3000)) {
+        // Περιμένουμε 3.5 δευτερόλεπτα πριν ξαναπαίξει ήχο για να μη γίνεται φασαρία
+        if (label !== lastPlayedLabel || (currentTime - lastPlayedTime > 3500)) {
             const voice = document.getElementById("voice-type").value;
-            // Μετατροπή label σε όνομα αρχείου (π.χ. "GEIA" -> "geia")
+            // Μετατροπή: Π.χ. "KALIMERA" -> "kalimera.female.wav"
             let fileName = label.toLowerCase().replace(/ /g, "_") + "." + voice + ".wav";
             
             let audio = new Audio(fileName);
-            audio.play().catch(e => console.log("Περιμένω αλληλεπίδραση για τον ήχο..."));
+            audio.play().catch(e => console.log("Απαιτείται κλικ για τον ήχο"));
             
             lastPlayedLabel = label;
             lastPlayedTime = currentTime;
