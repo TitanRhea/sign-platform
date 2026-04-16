@@ -8,6 +8,7 @@
         .container { background: white; max-width: 600px; margin: 50px auto; padding: 30px; border-radius: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
         h2 { color: #333; margin-bottom: 20px; }
         
+        /* Καθαρό Βίντεο (Χωρίς Σκελετό) */
         #webcam-container { 
             border-radius: 20px; border: 6px solid #4CAF50; overflow: hidden; 
             display: inline-block; line-height: 0; width: 400px; height: 400px; background: #000;
@@ -30,7 +31,7 @@
 <body>
 
 <div class="container">
-    <h2>📸 Live Αναγνώριση</h2>
+    <h2>📸 Live Αναγνώριση (Smart AI)</h2>
     
     <select id="voice-type" class="voice-select">
         <option value="female">Γυναικεία Φωνή</option>
@@ -49,25 +50,36 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
 
 <script>
+    // Το Image Model Link σου
     const URL = "https://teachablemachine.withgoogle.com/models/a1pcBq62k/";
     
-    let model, webcam, maxPredictions;
+    let imageModel, poseNetModel, webcam, maxPredictions;
     let lastPlayedLabel = "";
     let lastPlayedTime = 0;
     
-    // ΜΕΤΑΒΛΗΤΕΣ ΓΙΑ ΤΗ ΣΤΑΘΕΡΟΠΟΙΗΣΗ
+    // Σταθεροποιητής Κίνησης
     let consecutiveFrames = 0;
     let currentCandidate = "";
 
     async function init() {
-        document.getElementById("status").innerText = "Φόρτωση συστήματος...";
+        document.getElementById("status").innerText = "Φόρτωση Διπλού AI (Παρακαλώ περιμένετε)...";
+        
+        // 1. Φόρτωση του δικού σου Image Model
         const modelURL = URL + "model.json";
         const metadataURL = URL + "metadata.json";
+        imageModel = await tmImage.load(modelURL, metadataURL);
+        maxPredictions = imageModel.getTotalClasses();
 
-        model = await tmImage.load(modelURL, metadataURL);
-        maxPredictions = model.getTotalClasses();
+        // 2. Φόρτωση του PoseNet (Σκελετός) στο παρασκήνιο, ελαφριά έκδοση
+        poseNetModel = await posenet.load({
+            architecture: 'MobileNetV1',
+            outputStride: 16,
+            multiplier: 0.50, // Ελαφρύ για ταχύτητα
+            quantBytes: 2
+        });
 
         const flip = true; 
         webcam = new tmImage.Webcam(400, 400, flip); 
@@ -78,6 +90,7 @@
         const container = document.getElementById("webcam-container");
         container.innerHTML = ""; 
         container.appendChild(webcam.canvas);
+        
         document.getElementById("status").innerText = "🟢 Σύστημα Ενεργό. Μίλησε με τα χέρια σου!";
     }
 
@@ -88,39 +101,89 @@
     }
 
     async function predict() {
-        const prediction = await model.predict(webcam.canvas);
+        // ΤΡΕΧΟΥΝ ΤΑΥΤΟΧΡΟΝΑ ΓΙΑ ΤΑΧΥΤΗΤΑ
+        const [imagePrediction, posePrediction] = await Promise.all([
+            imageModel.predict(webcam.canvas),
+            poseNetModel.estimateSinglePose(webcam.canvas, { flipHorizontal: false })
+        ]);
 
         let bestName = "";
         let bestProb = 0;
 
+        // Βρίσκουμε τι πιστεύει το Image Model
         for (let i = 0; i < maxPredictions; i++) {
-            if (prediction[i].probability > bestProb) {
-                bestProb = prediction[i].probability;
-                bestName = prediction[i].className;
+            if (imagePrediction[i].probability > bestProb) {
+                bestProb = imagePrediction[i].probability;
+                bestName = imagePrediction[i].className;
             }
         }
 
         let label = bestName.toLowerCase();
+        let isValid = false;
 
-        // 1ος Έλεγχος: Είναι σίγουρο πάνω από 85% και ΔΕΝ είναι Background;
-        if (bestProb > 0.85 && label !== "background" && label !== "τίποτα") {
+        // Οριο Σιγουριάς 80% (όπως ζήτησες)
+        if (bestProb > 0.80 && label !== "background" && label !== "τίποτα") {
             
-            // 2ος Έλεγχος: Είναι η ίδια κίνηση που έκανε και πριν από 1 χιλιοστό του δευτερολέπτου;
-            if (label === currentCandidate) {
-                consecutiveFrames++; // Αυξάνουμε τον μετρητή
+            const keypoints = posePrediction.keypoints;
+            const getPart = (name) => keypoints.find(k => k.part === name);
+            const isVis = (p) => p && p.score > 0.3; // Απλή ορατότητα
+
+            const nose = getPart('nose');
+            const rWrist = getPart('rightWrist');
+            const lWrist = getPart('leftWrist');
+            const rElbow = getPart('rightElbow');
+            const lElbow = getPart('leftElbow');
+            const rShoulder = getPart('rightShoulder');
+
+            // --- ΟΙ ΔΙΚΛΕΙΔΕΣ ΑΣΦΑΛΕΙΑΣ ΣΟΥ --- //
+
+            if (label.includes("mesimeri") || label.includes("μεσημερι")) {
+                // Κανόνας: Χέρι κάθετο κοντά στο πηγούνι/μύτη
+                if (isVis(rWrist) && isVis(nose)) {
+                    if (Math.abs(rWrist.position.y - nose.position.y) < 150) isValid = true;
+                }
+            }
+            else if (label.includes("efharisto") || label.includes("ευχαριστω")) {
+                // Κανόνας: Δύο χέρια ψηλά στον θώρακα (πάνω από αγκώνες)
+                if (isVis(rWrist) && isVis(lWrist) && isVis(rElbow) && isVis(lElbow)) {
+                    if (rWrist.position.y < rElbow.position.y && lWrist.position.y < lElbow.position.y) isValid = true;
+                }
+            }
+            else if (label.includes("geia") || label.includes("γεια") || label.includes("kalimera")) {
+                // Κανόνας: Χέρι ψηλά να χαιρετάει (πάνω από τον ώμο)
+                if (isVis(rWrist) && isVis(rShoulder)) {
+                    if (rWrist.position.y < rShoulder.position.y + 30) isValid = true;
+                } else if (isVis(lWrist) && isVis(rShoulder)) { 
+                    if (lWrist.position.y < rShoulder.position.y + 30) isValid = true;
+                }
+            }
+            else if (label.includes("onoma") || label.includes("ονομα")) {
+                // Κανόνας: Και τα δύο χέρια εμφανή
+                if (isVis(rWrist) && isVis(lWrist)) isValid = true;
+            }
+            else {
+                isValid = true; // Αν προστεθεί άλλη λέξη
+            }
+            
+            // --- ΣΤΑΘΕΡΟΠΟΙΗΤΗΣ (Αν πέρασε τον κανόνα του σώματος) --- //
+            if (isValid) {
+                if (label === currentCandidate) {
+                    consecutiveFrames++;
+                } else {
+                    currentCandidate = label;
+                    consecutiveFrames = 1;
+                }
+
+                // Πρέπει να το κάνει σταθερά για 5-6 καρέ (πολύ γρήγορο, αλλά ασφαλές)
+                if (consecutiveFrames >= 6) {
+                    handleAudio(bestName);
+                    consecutiveFrames = 0; // Μηδενισμός
+                }
             } else {
-                currentCandidate = label;
-                consecutiveFrames = 1; // Ξεκινάμε το μέτρημα από την αρχή
+                consecutiveFrames = 0;
             }
 
-            // Αν η κίνηση είναι σταθερή για 12 καρέ (~μισό δευτερόλεπτο), ΠΑΙΞΕ ΤΟΝ ΗΧΟ!
-            if (consecutiveFrames >= 12) {
-                handleAudio(bestName);
-                consecutiveFrames = 0; // Μηδενίζουμε για να μην το λέει συνέχεια
-            }
-            
         } else {
-            // Αν πέσει κάτω από 85% ή είναι Background, μηδενίζουμε τα πάντα.
             consecutiveFrames = 0;
             currentCandidate = "";
         }
@@ -129,10 +192,9 @@
     function handleAudio(label) {
         let currentTime = Date.now();
         
-        // Cooldown 3.5 δευτερολέπτων για να μην επαναλαμβάνεται
+        // Cooldown 3.5 δευτερολέπτων
         if (label !== lastPlayedLabel || (currentTime - lastPlayedTime > 3500)) {
             const voice = document.getElementById("voice-type").value;
-            
             let cleanLabel = label.toLowerCase().replace(/ /g, "_").replace(/\./g, "_");
             let fileName = cleanLabel + "." + voice + ".wav";
             
