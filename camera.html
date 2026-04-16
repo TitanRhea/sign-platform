@@ -138,8 +138,6 @@
 
         let label = bestName.toLowerCase();
         
-        // --- ΑΥΣΤΗΡΑ ΟΡΙΑ (THRESHOLDS) ---
-        // 95% για Γεια/Καλημέρα για να τα φρενάρουμε, 65% για τα άλλα για να τα βοηθήσουμε
         let requiredConfidence = 0.65; 
         if (label.includes("geia") || label.includes("γεια") || label.includes("kalimera") || label.includes("καλημερα")) {
             requiredConfidence = 0.95;
@@ -159,30 +157,37 @@
             const rElbow = getPart('rightElbow');
             const lElbow = getPart('leftElbow');
             const rShoulder = getPart('rightShoulder');
+            const lShoulder = getPart('leftShoulder');
 
-            // --- ΟΙ ΝΕΟΙ, ΔΙΟΡΘΩΜΕΝΟΙ ΚΑΝΟΝΕΣ --- //
+            // --- ΣΩΣΤΟΙ ΚΑΝΟΝΕΣ (Y-axis: Μικρότερο σημαίνει ψηλότερα) --- //
 
             if (label.includes("mesimeri") || label.includes("μεσημερι")) {
                 if (isVis(rWrist) && isVis(nose)) {
-                    if (Math.abs(rWrist.position.y - nose.position.y) < 150) isValid = true;
+                    // Η απόσταση (Χ και Υ) πρέπει να είναι μικρή
+                    const dx = rWrist.position.x - nose.position.x;
+                    const dy = rWrist.position.y - nose.position.y;
+                    const distance = Math.sqrt(dx*dx + dy*dy);
+                    if (distance < 100) isValid = true; 
                 }
             }
             else if (label.includes("efharisto") || label.includes("ευχαριστω")) {
                 if (isVis(rWrist) && isVis(lWrist) && isVis(rElbow) && isVis(lElbow)) {
+                    // Οι καρποί πρέπει να είναι πιο πάνω από τους αγκώνες
                     if (rWrist.position.y < rElbow.position.y && lWrist.position.y < lElbow.position.y) isValid = true;
                 }
             }
             else if (label.includes("geia") || label.includes("γεια") || label.includes("kalimera")) {
-                // ΔΙΟΡΘΩΣΗ: Το χέρι πρέπει να είναι πολύ ψηλότερα (μικρότερο y) από τον ώμο
                 if (isVis(rWrist) && isVis(rShoulder)) {
-                    if (rWrist.position.y < rShoulder.position.y - 20) isValid = true;
-                } else if (isVis(lWrist) && isVis(rShoulder)) { 
-                    if (lWrist.position.y < rShoulder.position.y - 20) isValid = true;
+                    // Ο δεξιός καρπός να είναι πιο ψηλά (μικρότερο y) από τον δεξιό ώμο
+                    if (rWrist.position.y < rShoulder.position.y) isValid = true;
+                } else if (isVis(lWrist) && isVis(lShoulder)) { 
+                    // Ο αριστερός καρπός να είναι πιο ψηλά από τον αριστερό ώμο
+                    if (lWrist.position.y < lShoulder.position.y) isValid = true;
                 }
             }
             else if (label.includes("onoma") || label.includes("ονομα")) {
-                // Το όνομα θέλει και τα δύο χέρια ορατά και κάπως κοντά μεταξύ τους (να παίζουν τα κυκλάκια)
                 if (isVis(rWrist) && isVis(lWrist)) {
+                    // Τα χέρια να είναι κοντά (κάτω από 200 pixels απόσταση στον άξονα Χ)
                     if (Math.abs(rWrist.position.x - lWrist.position.x) < 200) isValid = true;
                 }
             }
