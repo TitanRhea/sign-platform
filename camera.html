@@ -8,17 +8,9 @@
         .container { background: white; max-width: 600px; margin: 50px auto; padding: 30px; border-radius: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
         h2 { color: #333; margin-bottom: 20px; }
         
-        /* Καθαρή εμφάνιση κάμερας χωρίς περιττά στοιχεία */
         #webcam-container { 
-            border-radius: 20px; 
-            border: 6px solid #4CAF50; 
-            overflow: hidden; 
-            display: inline-block; 
-            line-height: 0; 
-            width: 400px; 
-            height: 400px; 
-            background: #000;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            border-radius: 20px; border: 6px solid #4CAF50; overflow: hidden; 
+            display: inline-block; line-height: 0; width: 400px; height: 400px; background: #000;
         }
         #webcam-container canvas { width: 100% !important; height: 100% !important; object-fit: cover; }
         
@@ -46,7 +38,6 @@
     </select>
 
     <div id="webcam-container"></div>
-    
     <div id="status">Περιμένω την έναρξη...</div>
 
     <div class="controls">
@@ -60,12 +51,15 @@
 <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
 
 <script>
-    // Σύνδεσμος προς το νέο Image Model
     const URL = "https://teachablemachine.withgoogle.com/models/a1pcBq62k/";
     
     let model, webcam, maxPredictions;
     let lastPlayedLabel = "";
     let lastPlayedTime = 0;
+    
+    // ΜΕΤΑΒΛΗΤΕΣ ΓΙΑ ΤΗ ΣΤΑΘΕΡΟΠΟΙΗΣΗ
+    let consecutiveFrames = 0;
+    let currentCandidate = "";
 
     async function init() {
         document.getElementById("status").innerText = "Φόρτωση συστήματος...";
@@ -84,7 +78,7 @@
         const container = document.getElementById("webcam-container");
         container.innerHTML = ""; 
         container.appendChild(webcam.canvas);
-        document.getElementById("status").innerText = "Σύστημα Ενεργό";
+        document.getElementById("status").innerText = "🟢 Σύστημα Ενεργό. Μίλησε με τα χέρια σου!";
     }
 
     async function loop() {
@@ -106,27 +100,44 @@
             }
         }
 
-        // Έλεγχος: Ακρίβεια > 85% και αποκλεισμός της κλάσης Background
-        if (bestProb > 0.85 && bestName.toLowerCase() !== "background") {
-            // Δεν εμφανίζουμε κείμενο, καλούμε μόνο τη συνάρτηση ήχου
-            handleAudio(bestName);
+        let label = bestName.toLowerCase();
+
+        // 1ος Έλεγχος: Είναι σίγουρο πάνω από 85% και ΔΕΝ είναι Background;
+        if (bestProb > 0.85 && label !== "background" && label !== "τίποτα") {
+            
+            // 2ος Έλεγχος: Είναι η ίδια κίνηση που έκανε και πριν από 1 χιλιοστό του δευτερολέπτου;
+            if (label === currentCandidate) {
+                consecutiveFrames++; // Αυξάνουμε τον μετρητή
+            } else {
+                currentCandidate = label;
+                consecutiveFrames = 1; // Ξεκινάμε το μέτρημα από την αρχή
+            }
+
+            // Αν η κίνηση είναι σταθερή για 12 καρέ (~μισό δευτερόλεπτο), ΠΑΙΞΕ ΤΟΝ ΗΧΟ!
+            if (consecutiveFrames >= 12) {
+                handleAudio(bestName);
+                consecutiveFrames = 0; // Μηδενίζουμε για να μην το λέει συνέχεια
+            }
+            
+        } else {
+            // Αν πέσει κάτω από 85% ή είναι Background, μηδενίζουμε τα πάντα.
+            consecutiveFrames = 0;
+            currentCandidate = "";
         }
     }
 
     function handleAudio(label) {
         let currentTime = Date.now();
         
-        // Χρονική δικλείδα 3.5 δευτερολέπτων για να μην επαναλαμβάνεται ο ήχος συνεχόμενα
+        // Cooldown 3.5 δευτερολέπτων για να μην επαναλαμβάνεται
         if (label !== lastPlayedLabel || (currentTime - lastPlayedTime > 3500)) {
             const voice = document.getElementById("voice-type").value;
             
-            // Μετατροπή ονόματος κλάσης σε όνομα αρχείου ήχου
-            // π.χ. "Geia" -> "geia.female.wav"
             let cleanLabel = label.toLowerCase().replace(/ /g, "_").replace(/\./g, "_");
             let fileName = cleanLabel + "." + voice + ".wav";
             
             let audio = new Audio(fileName);
-            audio.play().catch(e => console.log("Απαιτείται κλικ για την αναπαραγωγή ήχου."));
+            audio.play().catch(e => console.log("Απαιτείται κλικ..."));
             
             lastPlayedLabel = label;
             lastPlayedTime = currentTime;
