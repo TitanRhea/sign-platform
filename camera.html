@@ -8,21 +8,24 @@
         .container { background: white; max-width: 600px; margin: 50px auto; padding: 30px; border-radius: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
         h2 { color: #333; margin-bottom: 20px; }
         
-        /* Καθαρό Βίντεο (Χωρίς Σκελετό) */
+        /* Καθαρό Βίντεο */
         #webcam-container { 
             border-radius: 20px; border: 6px solid #4CAF50; overflow: hidden; 
             display: inline-block; line-height: 0; width: 400px; height: 400px; background: #000;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         }
         #webcam-container canvas { width: 100% !important; height: 100% !important; object-fit: cover; }
         
         #status { font-size: 18px; margin-top: 15px; color: #666; font-weight: 500; }
         .controls { margin-top: 25px; }
         
-        button { 
+        /* Κουμπί Κάμερας */
+        #cam-btn { 
             padding: 15px 35px; font-size: 18px; border-radius: 50px; border: none; 
-            cursor: pointer; background: #4CAF50; color: white; font-weight: bold; transition: 0.3s;
+            cursor: pointer; background: #27ae60; color: white; font-weight: bold; transition: 0.3s;
         }
-        button:hover { background: #45a049; transform: scale(1.05); }
+        #cam-btn:hover { transform: scale(1.05); }
+        #cam-btn.active { background: #e74c3c; } /* Κόκκινο όταν είναι ανοιχτή για να την κλείσεις */
         
         .back-link { display: inline-block; margin-top: 20px; color: #888; text-decoration: none; font-size: 14px; }
         .voice-select { margin-bottom: 20px; padding: 10px; border-radius: 10px; border: 1px solid #ddd; }
@@ -39,10 +42,10 @@
     </select>
 
     <div id="webcam-container"></div>
-    <div id="status">Περιμένω την έναρξη...</div>
+    <div id="status">Η κάμερα είναι κλειστή.</div>
 
     <div class="controls">
-        <button onclick="init()">Ενεργοποίηση Κάμερας</button>
+        <button id="cam-btn" onclick="toggleCamera()">▶ Έναρξη Κάμερας</button>
     </div>
     
     <a href="index.html" class="back-link">⬅ Επιστροφή στο κεντρικό μενού</a>
@@ -53,55 +56,80 @@
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
 
 <script>
-    // Το Image Model Link σου
     const URL = "https://teachablemachine.withgoogle.com/models/a1pcBq62k/";
     
     let imageModel, poseNetModel, webcam, maxPredictions;
     let lastPlayedLabel = "";
     let lastPlayedTime = 0;
     
-    // Σταθεροποιητής Κίνησης
     let consecutiveFrames = 0;
     let currentCandidate = "";
+    
+    // Μεταβλητές Ελέγχου Κάμερας
+    let isCameraRunning = false;
+    let isSystemLoaded = false;
 
-    async function init() {
+    async function setupSystem() {
         document.getElementById("status").innerText = "Φόρτωση Διπλού AI (Παρακαλώ περιμένετε)...";
         
-        // 1. Φόρτωση του δικού σου Image Model
         const modelURL = URL + "model.json";
         const metadataURL = URL + "metadata.json";
         imageModel = await tmImage.load(modelURL, metadataURL);
         maxPredictions = imageModel.getTotalClasses();
 
-        // 2. Φόρτωση του PoseNet (Σκελετός) στο παρασκήνιο, ελαφριά έκδοση
         poseNetModel = await posenet.load({
             architecture: 'MobileNetV1',
             outputStride: 16,
-            multiplier: 0.50, // Ελαφρύ για ταχύτητα
+            multiplier: 0.50,
             quantBytes: 2
         });
 
-        const flip = true; 
-        webcam = new tmImage.Webcam(400, 400, flip); 
+        webcam = new tmImage.Webcam(400, 400, true); 
         await webcam.setup(); 
-        await webcam.play();
-        window.requestAnimationFrame(loop);
-
+        
         const container = document.getElementById("webcam-container");
         container.innerHTML = ""; 
         container.appendChild(webcam.canvas);
         
-        document.getElementById("status").innerText = "🟢 Σύστημα Ενεργό. Μίλησε με τα χέρια σου!";
+        isSystemLoaded = true;
+    }
+
+    async function toggleCamera() {
+        const btn = document.getElementById("cam-btn");
+        
+        if (!isCameraRunning) {
+            // ΑΝΟΙΓΜΑ ΚΑΜΕΡΑΣ
+            if (!isSystemLoaded) await setupSystem();
+            await webcam.play();
+            isCameraRunning = true;
+            window.requestAnimationFrame(loop);
+            
+            btn.innerText = "⏹ Κλείσιμο Κάμερας";
+            btn.classList.add("active");
+            document.getElementById("status").innerText = "🟢 Σύστημα Ενεργό. Μίλησε με τα χέρια σου!";
+            
+            // Αρχικοποίηση Audio Context σε user gesture (για να μην μπλοκάρει ο browser)
+            new Audio("").play().catch(e => {}); 
+        } else {
+            // ΚΛΕΙΣΙΜΟ ΚΑΜΕΡΑΣ
+            webcam.stop();
+            isCameraRunning = false;
+            
+            btn.innerText = "▶ Έναρξη Κάμερας";
+            btn.classList.remove("active");
+            document.getElementById("status").innerText = "🔴 Η κάμερα είναι κλειστή.";
+        }
     }
 
     async function loop() {
+        if (!isCameraRunning) return; // Σταματάει το loop αν κλείσει η κάμερα
+        
         webcam.update(); 
         await predict();
         window.requestAnimationFrame(loop);
     }
 
     async function predict() {
-        // ΤΡΕΧΟΥΝ ΤΑΥΤΟΧΡΟΝΑ ΓΙΑ ΤΑΧΥΤΗΤΑ
         const [imagePrediction, posePrediction] = await Promise.all([
             imageModel.predict(webcam.canvas),
             poseNetModel.estimateSinglePose(webcam.canvas, { flipHorizontal: false })
@@ -110,7 +138,6 @@
         let bestName = "";
         let bestProb = 0;
 
-        // Βρίσκουμε τι πιστεύει το Image Model
         for (let i = 0; i < maxPredictions; i++) {
             if (imagePrediction[i].probability > bestProb) {
                 bestProb = imagePrediction[i].probability;
@@ -119,14 +146,21 @@
         }
 
         let label = bestName.toLowerCase();
+        
+        // --- ΔΥΝΑΜΙΚΑ ΟΡΙΑ (THRESHOLDS) ---
+        // 80% για Γεια και Καλημέρα, 70% για τα υπόλοιπα
+        let requiredConfidence = 0.70; 
+        if (label.includes("geia") || label.includes("γεια") || label.includes("kalimera") || label.includes("καλημερα")) {
+            requiredConfidence = 0.80;
+        }
+
         let isValid = false;
 
-        // Οριο Σιγουριάς 80% (όπως ζήτησες)
-        if (bestProb > 0.80 && label !== "background" && label !== "τίποτα") {
+        if (bestProb > requiredConfidence && label !== "background" && label !== "τίποτα") {
             
             const keypoints = posePrediction.keypoints;
             const getPart = (name) => keypoints.find(k => k.part === name);
-            const isVis = (p) => p && p.score > 0.3; // Απλή ορατότητα
+            const isVis = (p) => p && p.score > 0.3;
 
             const nose = getPart('nose');
             const rWrist = getPart('rightWrist');
@@ -135,22 +169,19 @@
             const lElbow = getPart('leftElbow');
             const rShoulder = getPart('rightShoulder');
 
-            // --- ΟΙ ΔΙΚΛΕΙΔΕΣ ΑΣΦΑΛΕΙΑΣ ΣΟΥ --- //
+            // --- ΟΙ ΔΙΚΛΕΙΔΕΣ ΑΣΦΑΛΕΙΑΣ ΤΟΥ ΣΩΜΑΤΟΣ --- //
 
             if (label.includes("mesimeri") || label.includes("μεσημερι")) {
-                // Κανόνας: Χέρι κάθετο κοντά στο πηγούνι/μύτη
                 if (isVis(rWrist) && isVis(nose)) {
                     if (Math.abs(rWrist.position.y - nose.position.y) < 150) isValid = true;
                 }
             }
             else if (label.includes("efharisto") || label.includes("ευχαριστω")) {
-                // Κανόνας: Δύο χέρια ψηλά στον θώρακα (πάνω από αγκώνες)
                 if (isVis(rWrist) && isVis(lWrist) && isVis(rElbow) && isVis(lElbow)) {
                     if (rWrist.position.y < rElbow.position.y && lWrist.position.y < lElbow.position.y) isValid = true;
                 }
             }
             else if (label.includes("geia") || label.includes("γεια") || label.includes("kalimera")) {
-                // Κανόνας: Χέρι ψηλά να χαιρετάει (πάνω από τον ώμο)
                 if (isVis(rWrist) && isVis(rShoulder)) {
                     if (rWrist.position.y < rShoulder.position.y + 30) isValid = true;
                 } else if (isVis(lWrist) && isVis(rShoulder)) { 
@@ -158,14 +189,13 @@
                 }
             }
             else if (label.includes("onoma") || label.includes("ονομα")) {
-                // Κανόνας: Και τα δύο χέρια εμφανή
                 if (isVis(rWrist) && isVis(lWrist)) isValid = true;
             }
             else {
-                isValid = true; // Αν προστεθεί άλλη λέξη
+                isValid = true;
             }
             
-            // --- ΣΤΑΘΕΡΟΠΟΙΗΤΗΣ (Αν πέρασε τον κανόνα του σώματος) --- //
+            // --- ΣΤΑΘΕΡΟΠΟΙΗΤΗΣ --- //
             if (isValid) {
                 if (label === currentCandidate) {
                     consecutiveFrames++;
@@ -174,10 +204,9 @@
                     consecutiveFrames = 1;
                 }
 
-                // Πρέπει να το κάνει σταθερά για 5-6 καρέ (πολύ γρήγορο, αλλά ασφαλές)
                 if (consecutiveFrames >= 6) {
                     handleAudio(bestName);
-                    consecutiveFrames = 0; // Μηδενισμός
+                    consecutiveFrames = 0; 
                 }
             } else {
                 consecutiveFrames = 0;
@@ -192,7 +221,6 @@
     function handleAudio(label) {
         let currentTime = Date.now();
         
-        // Cooldown 3.5 δευτερολέπτων
         if (label !== lastPlayedLabel || (currentTime - lastPlayedTime > 3500)) {
             const voice = document.getElementById("voice-type").value;
             let cleanLabel = label.toLowerCase().replace(/ /g, "_").replace(/\./g, "_");
