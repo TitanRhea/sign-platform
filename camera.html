@@ -129,15 +129,15 @@
 
         let label = bestName.toLowerCase();
         
-        // Όρια Σιγουριάς: 95% για Γεια/Καλημέρα (για να μην πετάγονται), 80% για τα άλλα.
+        // --- ΝΕΑ ΟΡΙΑ ΣΙΓΟΥΡΙΑΣ --- 
+        // 85% για Γεια/Καλημέρα (μειώθηκε από 95%), 80% για τα άλλα.
         let requiredConfidence = 0.80; 
         if (label.includes("geia") || label.includes("γεια") || label.includes("kalimera") || label.includes("καλημερα")) {
-            requiredConfidence = 0.95;
+            requiredConfidence = 0.85;
         }
 
         if (bestProb > requiredConfidence && label !== "background" && label !== "τίποτα") {
             
-            // Ο ΣΤΑΘΕΡΟΠΟΙΗΤΗΣ
             if (label === currentCandidate) {
                 consecutiveFrames++;
             } else {
@@ -145,8 +145,8 @@
                 consecutiveFrames = 1;
             }
 
-            // Απαιτεί την κίνηση σταθερή για 8 καρέ (~0.3 δευτερόλεπτα)
-            if (consecutiveFrames >= 8) {
+            // Ο σταθεροποιητής μειώθηκε στα 5 καρέ 
+            if (consecutiveFrames >= 5) {
                 handleAudio(bestName);
                 consecutiveFrames = 0; 
             }
