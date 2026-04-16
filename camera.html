@@ -8,7 +8,6 @@
         .container { background: white; max-width: 600px; margin: 50px auto; padding: 30px; border-radius: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
         h2 { color: #333; margin-bottom: 20px; }
         
-        /* Καθαρό Βίντεο */
         #webcam-container { 
             border-radius: 20px; border: 6px solid #4CAF50; overflow: hidden; 
             display: inline-block; line-height: 0; width: 400px; height: 400px; background: #000;
@@ -19,13 +18,12 @@
         #status { font-size: 18px; margin-top: 15px; color: #666; font-weight: 500; }
         .controls { margin-top: 25px; }
         
-        /* Κουμπί Κάμερας */
         #cam-btn { 
             padding: 15px 35px; font-size: 18px; border-radius: 50px; border: none; 
             cursor: pointer; background: #27ae60; color: white; font-weight: bold; transition: 0.3s;
         }
         #cam-btn:hover { transform: scale(1.05); }
-        #cam-btn.active { background: #e74c3c; } /* Κόκκινο όταν είναι ανοιχτή για να την κλείσεις */
+        #cam-btn.active { background: #e74c3c; } 
         
         .back-link { display: inline-block; margin-top: 20px; color: #888; text-decoration: none; font-size: 14px; }
         .voice-select { margin-bottom: 20px; padding: 10px; border-radius: 10px; border: 1px solid #ddd; }
@@ -64,8 +62,6 @@
     
     let consecutiveFrames = 0;
     let currentCandidate = "";
-    
-    // Μεταβλητές Ελέγχου Κάμερας
     let isCameraRunning = false;
     let isSystemLoaded = false;
 
@@ -98,7 +94,6 @@
         const btn = document.getElementById("cam-btn");
         
         if (!isCameraRunning) {
-            // ΑΝΟΙΓΜΑ ΚΑΜΕΡΑΣ
             if (!isSystemLoaded) await setupSystem();
             await webcam.play();
             isCameraRunning = true;
@@ -107,11 +102,8 @@
             btn.innerText = "⏹ Κλείσιμο Κάμερας";
             btn.classList.add("active");
             document.getElementById("status").innerText = "🟢 Σύστημα Ενεργό. Μίλησε με τα χέρια σου!";
-            
-            // Αρχικοποίηση Audio Context σε user gesture (για να μην μπλοκάρει ο browser)
             new Audio("").play().catch(e => {}); 
         } else {
-            // ΚΛΕΙΣΙΜΟ ΚΑΜΕΡΑΣ
             webcam.stop();
             isCameraRunning = false;
             
@@ -122,8 +114,7 @@
     }
 
     async function loop() {
-        if (!isCameraRunning) return; // Σταματάει το loop αν κλείσει η κάμερα
-        
+        if (!isCameraRunning) return; 
         webcam.update(); 
         await predict();
         window.requestAnimationFrame(loop);
@@ -147,11 +138,11 @@
 
         let label = bestName.toLowerCase();
         
-        // --- ΔΥΝΑΜΙΚΑ ΟΡΙΑ (THRESHOLDS) ---
-        // 80% για Γεια και Καλημέρα, 70% για τα υπόλοιπα
-        let requiredConfidence = 0.70; 
+        // --- ΑΥΣΤΗΡΑ ΟΡΙΑ (THRESHOLDS) ---
+        // 95% για Γεια/Καλημέρα για να τα φρενάρουμε, 65% για τα άλλα για να τα βοηθήσουμε
+        let requiredConfidence = 0.65; 
         if (label.includes("geia") || label.includes("γεια") || label.includes("kalimera") || label.includes("καλημερα")) {
-            requiredConfidence = 0.80;
+            requiredConfidence = 0.95;
         }
 
         let isValid = false;
@@ -169,7 +160,7 @@
             const lElbow = getPart('leftElbow');
             const rShoulder = getPart('rightShoulder');
 
-            // --- ΟΙ ΔΙΚΛΕΙΔΕΣ ΑΣΦΑΛΕΙΑΣ ΤΟΥ ΣΩΜΑΤΟΣ --- //
+            // --- ΟΙ ΝΕΟΙ, ΔΙΟΡΘΩΜΕΝΟΙ ΚΑΝΟΝΕΣ --- //
 
             if (label.includes("mesimeri") || label.includes("μεσημερι")) {
                 if (isVis(rWrist) && isVis(nose)) {
@@ -182,14 +173,18 @@
                 }
             }
             else if (label.includes("geia") || label.includes("γεια") || label.includes("kalimera")) {
+                // ΔΙΟΡΘΩΣΗ: Το χέρι πρέπει να είναι πολύ ψηλότερα (μικρότερο y) από τον ώμο
                 if (isVis(rWrist) && isVis(rShoulder)) {
-                    if (rWrist.position.y < rShoulder.position.y + 30) isValid = true;
+                    if (rWrist.position.y < rShoulder.position.y - 20) isValid = true;
                 } else if (isVis(lWrist) && isVis(rShoulder)) { 
-                    if (lWrist.position.y < rShoulder.position.y + 30) isValid = true;
+                    if (lWrist.position.y < rShoulder.position.y - 20) isValid = true;
                 }
             }
             else if (label.includes("onoma") || label.includes("ονομα")) {
-                if (isVis(rWrist) && isVis(lWrist)) isValid = true;
+                // Το όνομα θέλει και τα δύο χέρια ορατά και κάπως κοντά μεταξύ τους (να παίζουν τα κυκλάκια)
+                if (isVis(rWrist) && isVis(lWrist)) {
+                    if (Math.abs(rWrist.position.x - lWrist.position.x) < 200) isValid = true;
+                }
             }
             else {
                 isValid = true;
