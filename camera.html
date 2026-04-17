@@ -2,118 +2,230 @@
 <html lang="el">
 <head>
     <meta charset="UTF-8">
-    <title>SignAI | Live Recognition & Avatar</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SignAI | 3D Avatar & Live Recognition</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f0e6dc; text-align: center; margin: 0; padding: 20px; }
-        .container { background: white; max-width: 900px; margin: auto; padding: 30px; border-radius: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        body { margin: 0; overflow: hidden; background-color: #f0e6dc; font-family: 'Segoe UI', sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; display: block; }
         
-        /* Περιοχή Αβατάρ */
-        #avatar-container {
-            width: 350px; height: 350px; margin: 20px auto;
-            background: #fff; border-radius: 20px; border: 4px solid #27ae60;
-            display: flex; align-items: center; justify-content: center;
-            overflow: hidden; position: relative;
+        #ui-layer {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            text-align: center; width: 100%; pointer-events: auto;
         }
-        #avatar-img { width: 100%; height: 100%; object-fit: contain; transition: transform 0.2s; }
+        
+        #subtitle {
+            font-size: 22px; color: #333; background: rgba(255, 255, 255, 0.95);
+            padding: 12px 25px; border-radius: 20px; display: inline-block; 
+            margin-bottom: 15px; font-weight: bold; box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            min-width: 380px; max-width: 80%; pointer-events: none;
+        }
 
-        .status-box { font-size: 26px; font-weight: bold; color: #2ecc71; margin: 20px; min-height: 50px; text-transform: uppercase; }
-        .controls { margin-top: 20px; background: #f9f9f9; padding: 20px; border-radius: 15px; }
-        select { padding: 10px; border-radius: 8px; border: 1px solid #ddd; font-size: 16px; }
+        .controls { display: flex; justify-content: center; gap: 10px; align-items: center; }
+        select { font-size: 16px; padding: 12px; border-radius: 10px; border: 1px solid #ddd; background: white;}
         
-        .pulse { animation: pulse-animation 0.5s ease-in-out; }
-        @keyframes pulse-animation {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-            100% { transform: scale(1); }
+        /* Ένδειξη σύνδεσης με Python */
+        #connection-status {
+            position: absolute; top: 20px; right: 20px;
+            padding: 10px 20px; border-radius: 50px;
+            font-weight: bold; font-size: 14px;
         }
+        .online { background: #4CAF50; color: white; }
+        .offline { background: #f44336; color: white; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h2>🤖 SignAI | Σύνδεση με Αβατάρ</h2>
+    <div id="connection-status" class="offline">Python Server: Offline</div>
+    <div id="canvas-container"></div>
     
-    <div class="controls">
-        <label>Επιλογή Φωνής: </label>
-        <select id="voice-type">
-            <option value="female">Γυναικεία Φωνή</option>
-            <option value="male">Αντρική Φωνή</option>
-        </select>
+    <div id="ui-layer">
+        <div id="subtitle">Περιμονή για τον Server...</div><br>
+        <div class="controls">
+            <select id="voice-select">
+                <option value="female">Φωνή: Rhea (Γυναίκα)</option>
+                <option value="male">Φωνή: Titan (Άνδρας)</option>
+            </select>
+            <select id="avatar-select" onchange="loadAvatar(this.value)">
+                <option value="updated_model.glb">Avatar: Rhea</option>
+                <option value="titan.glb">Avatar: Titan</option>
+            </select>
+        </div>
     </div>
 
-    <div id="avatar-container">
-        <img id="avatar-img" src="avatar_neutral.png" alt="Avatar">
-    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 
-    <div id="status" class="status-box">ΠΕΡΙΜΕΝΩ ΤΟΝ SERVER...</div>
-    
-    <p style="color: #888;">Βεβαιωθείτε ότι το <b>app.py</b> εκτελείται στον υπολογιστή σας.</p>
-</div>
+    <script>
+        // --- ΡΥΘΜΙΣΕΙΣ THREE.JS (Από τον κώδικά σου) ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf0e6dc);
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 1.8, 4.5); 
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 1.5, 0); 
+        controls.update();
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+        const light = new THREE.DirectionalLight(0xffffff, 0.6);
+        light.position.set(5, 10, 5);
+        scene.add(light);
 
-<script>
-    // Σύνδεση με τον Python Server που τρέχει τοπικά
-    const socket = io("http://localhost:5000");
-    const statusDiv = document.getElementById("status");
-    const avatarImg = document.getElementById("avatar-img");
+        let currentModel = null, bones = {}, is_busy = false, isTitan = false;
+        const deg = (d) => d * (Math.PI / 180);
+        const basePose = { x: 54, y: 30, z: 17 };
+        let gestureQueue = [];
 
-    socket.on('connect', () => {
-        statusDiv.innerText = "ΕΤΟΙΜΟΣ ΓΙΑ ΑΝΑΓΝΩΡΙΣΗ";
-        statusDiv.style.color = "#27ae60";
-    });
+        // --- ΦΟΡΤΩΣΗ AVATAR ---
+        const loader = new THREE.GLTFLoader();
+        const dracoLoader = new THREE.DRACOLoader();
+        dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.4.1/');
+        loader.setDRACOLoader(dracoLoader);
 
-    socket.on('disconnect', () => {
-        statusDiv.innerText = "ΑΠΟΣΥΝΔΕΘΗΚΕ Ο SERVER";
-        statusDiv.style.color = "#e74c3c";
-    });
+        function loadAvatar(file) {
+            const finalPath = file + "?v=" + Date.now();
+            isTitan = file.includes('titan'); 
+            if (currentModel) scene.remove(currentModel);
+            bones = { r_fingers: [], l_fingers: [], r_joints: {}, l_joints: {} }; 
+            
+            loader.load(finalPath, (gltf) => {
+                currentModel = gltf.scene;
+                currentModel.position.set(0, 0.6, 0); 
+                currentModel.scale.set(1.1, 1.1, 1.1); 
+                scene.add(currentModel);
+                currentModel.traverse(n => {
+                    if (n.isMesh && (n.name.toLowerCase().includes('cube') || n.name.toLowerCase().includes('box'))) n.visible = false;
+                    if (n.isBone) {
+                        const bName = n.name, bLower = bName.toLowerCase();
+                        if (bLower.includes('jaw')) bones.jaw = n;
+                        if (bName === 'mixamorig6RightArm' || bName === 'mixamorig9RightArm') bones.r_shoulder = n;
+                        if (bName === 'mixamorig6RightForeArm' || bName === 'mixamorig9RightForeArm') bones.r_elbow = n;
+                        if (bName === 'mixamorig6RightHand' || bName === 'mixamorig9RightHand') bones.r_wrist = n;
+                        if (bName === 'mixamorig6LeftArm' || bName === 'mixamorig9LeftArm') bones.l_shoulder = n;
+                        if (bName === 'mixamorig6LeftForeArm' || bName === 'mixamorig9LeftForeArm') bones.l_elbow = n;
+                        if (bName === 'mixamorig6LeftHand' || bName === 'mixamorig9LeftHand') bones.l_wrist = n;
+                        const match = bLower.match(/(thumb|index|middle|ring|pinky)(\d)/);
+                        if (match) {
+                            if (bLower.includes('right')) { bones.r_joints[match[0]] = n; bones.r_fingers.push(n); } 
+                            else if (bLower.includes('left')) { bones.l_joints[match[0]] = n; bones.l_fingers.push(n); }
+                        }
+                    }
+                });
+                setTimeout(() => {
+                    resetPose(0.1);
+                    if (bones.jaw) bones.jaw.rotation.x = deg(90);
+                    document.getElementById('subtitle').innerText = "Σύστημα Έτοιμο!";
+                }, 400);
+            });
+        }
 
-    // Λήψη λέξης από την Python
-    socket.on('new_sign', function(data) {
-        const word = data.word;
-        console.log("Αναγνωρίστηκε:", word);
+        // --- ΣΥΝΔΕΣΗ ΜΕ PYTHON (SOCKET.IO) ---
+        const socket = io("http://localhost:5000");
+        const connStatus = document.getElementById("connection-status");
+
+        socket.on('connect', () => {
+            connStatus.innerText = "Python Server: Online";
+            connStatus.className = "online";
+        });
+
+        socket.on('disconnect', () => {
+            connStatus.innerText = "Python Server: Offline";
+            connStatus.className = "offline";
+        });
+
+        socket.on('new_sign', (data) => {
+            const word = data.word; // π.χ. 'geia', 'kalimera'
+            
+            // 1. Εμφάνιση Υπότιτλου
+            let label = word.toUpperCase();
+            if(word === 'onoma') label = "ΠΟΙΟ ΕΙΝΑΙ ΤΟ ΟΝΟΜΑ ΣΟΥ;";
+            document.getElementById('subtitle').innerText = label;
+
+            // 2. Ήχος
+            playAudio(word);
+
+            // 3. Animation
+            enqueueGesture(word);
+        });
+
+        function playAudio(word) {
+            const voice = document.getElementById("voice-select").value;
+            let filename = word;
+            if (word === "onoma") filename = "poio.einai.to.onoma.sou";
+            let audio = new Audio(filename + "." + voice + ".wav");
+            audio.play().catch(e => console.log("Ήχος δεν βρέθηκε"));
+        }
+
+        // --- ΛΟΓΙΚΗ ANIMATION (Από τον κώδικά σου) ---
+        function enqueueGesture(gestureName) {
+            gestureQueue.push(gestureName);
+            if (!is_busy) processQueue();
+        }
+
+        function processQueue() {
+            if (is_busy || gestureQueue.length === 0) return;
+            is_busy = true;
+            let nextGesture = gestureQueue.shift();
+            
+            // Αντιστοίχιση λέξεων Python με συναρτήσεις JavaScript
+            if (nextGesture === 'efharisto') gesture_efcharisto();
+            else if (nextGesture === 'kalimera') gesture_kalimera();
+            else if (nextGesture === 'kalo_mesimeri') gesture_mesimeri();
+            else if (nextGesture === 'geia') gesture_geia();
+            else if (nextGesture === 'onoma') gesture_onoma();
+            else is_busy = false; // Αν δεν βρει κίνηση
+        }
+
+        // --- ΟΙ ΣΥΝΑΡΤΗΣΕΙΣ ΚΙΝΗΣΗΣ ΣΟΥ (Αμετάβλητες) ---
+        function resetPose(speed = 0.5) {
+            if (!bones.r_shoulder) return;
+            gsap.to(bones.r_shoulder.rotation, { x: deg(basePose.x), y: deg(basePose.y), z: deg(basePose.z), duration: speed });
+            if (bones.l_shoulder) gsap.to(bones.l_shoulder.rotation, { x: deg(basePose.x), y: deg(-basePose.y), z: deg(-basePose.z), duration: speed });
+            [bones.r_elbow, bones.l_elbow, bones.r_wrist, bones.l_wrist].forEach(b => { if(b) gsap.to(b.rotation, { x: 0, y: 0, z: 0, duration: speed }); });
+            bones.r_fingers.concat(bones.l_fingers).forEach(f => gsap.to(f.rotation, { x:0, y:0, z:0, duration: speed }));
+        }
+
+        function finalize_gesture() { 
+            if (gestureQueue.length > 0) {
+                setTimeout(() => { is_busy = false; processQueue(); }, 200); 
+            } else {
+                is_busy = false; 
+                setTimeout(() => { if (!is_busy) resetPose(0.5); }, 1500); 
+            }
+        }
+
+        // (Εδώ θα μπουν όλες οι υπόλοιπες συναρτήσεις σου: gesture_geia, gesture_kalimera, κλπ.)
+        // Τις κρατάμε ακριβώς όπως τις είχες γράψει στον κώδικά σου...
         
-        // 1. Ενημέρωση Κειμένου
-        let displayText = word;
-        if (word === "onoma") displayText = "Ποιο είναι το όνομά σου;";
-        statusDiv.innerText = displayText;
+        function gesture_geia() {
+            if(bones.r_shoulder) gsap.to(bones.r_shoulder.rotation, { x: deg(11), y: deg(18), z: deg(4), duration: 0.5 });
+            if(bones.r_elbow) gsap.to(bones.r_elbow.rotation, { x: deg(-10), y: deg(35), z: deg(-128), duration: 0.5 });
+            setTimeout(() => {
+                if(bones.r_wrist) {
+                    const tl = gsap.timeline({ repeat: 4, onComplete: finalize_gesture });
+                    tl.to(bones.r_wrist.rotation, { z: deg(25), duration: 0.25 }).to(bones.r_wrist.rotation, { z: deg(-25), duration: 0.25 });
+                } else { finalize_gesture(); }
+            }, 600);
+        }
 
-        // 2. Ήχος
-        playAudio(word);
+        // ...ΠΡΟΣΘΕΣΕ ΚΑΙ ΤΙΣ ΥΠΟΛΟΙΠΕΣ GESTURE ΣΥΝΑΡΤΗΣΕΙΣ ΕΔΩ...
 
-        // 3. Κίνηση Αβατάρ
-        animateAvatar(word);
-    });
+        loadAvatar('updated_model.glb');
+        function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
+        animate();
 
-    function playAudio(word) {
-        const voice = document.getElementById("voice-type").value;
-        let filename = word;
-        if (word === "onoma") filename = "poio.einai.to.onoma.sou";
-        
-        let audio = new Audio(filename + "." + voice + ".wav");
-        audio.play().catch(err => console.log("Δεν βρέθηκε το αρχείο ήχου: " + filename));
-    }
-
-    function animateAvatar(word) {
-        // Εφέ παλμού στην εικόνα
-        avatarImg.classList.remove("pulse");
-        void avatarImg.offsetWidth; // trigger reflow
-        avatarImg.classList.add("pulse");
-
-        // Αλλαγή εικόνας ανάλογα με τη λέξη (προαιρετικά)
-        // Αν έχεις εικόνες π.χ. avatar_geia.png, avatar_kalimera.png κλπ.
-        const originalSrc = "avatar_neutral.png";
-        const wordSrc = "avatar_" + word + ".png";
-
-        // Δοκιμάζει να αλλάξει εικόνα για 1.5 δευτερόλεπτο και μετά γυρνάει στην αρχική
-        let tempImg = new Image();
-        tempImg.src = wordSrc;
-        tempImg.onload = () => {
-            avatarImg.src = wordSrc;
-            setTimeout(() => { avatarImg.src = originalSrc; }, 1500);
-        };
-    }
-</script>
-
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
 </body>
 </html>
