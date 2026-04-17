@@ -15,7 +15,6 @@
             min-height: 100vh;
         }
 
-        /* Menu Bar για να αλλάζεις σελίδες */
         #nav-bar {
             width: 100%;
             background: rgba(51, 51, 51, 0.9);
@@ -54,7 +53,15 @@
         }
         #input_video { width: 100%; height: auto; transform: scaleX(-1); display: block; }
 
-        #subtitle-container { margin-top: 30px; text-align: center; }
+        #ui-container { 
+            margin-top: 30px; 
+            text-align: center; 
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+        
         #subtitle { 
             font-size: 32px; 
             color: #333; 
@@ -65,6 +72,18 @@
             box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
             min-width: 300px;
         }
+
+        /* Το νέο μενού επιλογής φωνής */
+        #voice-select {
+            font-size: 16px; 
+            padding: 10px 20px; 
+            border-radius: 10px; 
+            border: 2px solid #ddd; 
+            background: white;
+            cursor: pointer;
+            font-weight: bold;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
         
         #connection-status { 
             position: absolute; 
@@ -74,6 +93,7 @@
             border-radius: 50px; 
             font-weight: bold; 
             font-size: 14px;
+            transition: background-color 0.5s ease;
         }
         .online { background: #4CAF50; color: white; }
         .offline { background: #f44336; color: white; }
@@ -90,7 +110,7 @@
         <a href="avatar.html" class="nav-button">Αβατάρ (Μετάφραση)</a>
     </div>
 
-    <div id="connection-status" class="offline">Εγκέφαλος: Αποσυνδεδεμένος</div>
+    <div id="connection-status" class="offline">Εγκέφαλος: Εκκίνηση (Περιμένετε ~50 δευτ.)</div>
     
     <h1>SignAI: Αναγνώριση Νοηματικής</h1>
     
@@ -98,12 +118,17 @@
         <video id="input_video" autoplay playsinline></video>
     </div>
     
-    <div id="subtitle-container">
+    <div id="ui-container">
         <div id="subtitle">Περιμένω κίνηση...</div>
+        
+        <select id="voice-select">
+            <option value="female">Γυναικεία Φωνή</option>
+            <option value="male">Ανδρική Φωνή</option>
+        </select>
     </div>
 
     <script>
-        // ΣΥΝΔΕΣΗ ΜΕ ΤΟ RENDER
+        // 1. ΣΥΝΔΕΣΗ ΜΕ ΤΟ RENDER
         const socket = io("https://sign-ai-server.onrender.com");
         
         socket.on('connect', () => {
@@ -111,10 +136,37 @@
             document.getElementById("connection-status").className = "online";
         });
 
+        // Μετάφραση για τον Υπότιτλο (Για να γράφει ωραία Ελληνικά)
         const translations = {
             'efharisto': 'Ευχαριστώ',
             'kalimera': 'Καλημέρα',
-            'kalo_mesimeri': 'Καλό μεσημέρι'
+            'kalo_mesimeri': 'Καλό μεσημέρι',
+            'geia': 'Γεια',
+            'onoma': 'Ποιο είναι το όνομά σου;'
+        };
+
+        // Τα ακριβή ονόματα των .wav αρχείων από το screenshot σου
+        const audioFiles = {
+            'efharisto': { 
+                female: 'efharisto.female.wav', 
+                male: 'efharisto.male.wav' 
+            },
+            'kalimera': { 
+                female: 'kalimera.female.wav', 
+                male: 'kalimera.male.wav' 
+            },
+            'kalo_mesimeri': { 
+                female: 'kalo_mesimeri.female.wav', 
+                male: 'kalo_mesimeri.male.wav' 
+            },
+            'geia': { 
+                female: 'geia.female.wav', 
+                male: 'geia.male.wav' 
+            },
+            'onoma': { 
+                female: 'poio.einai.to.onoma.sou.female.wav', 
+                male: 'poio.einai.to.onoma.sou.male.wav' 
+            }
         };
 
         let is_speaking = false;
@@ -125,26 +177,42 @@
             const raw_word = data.word;
             const greek_word = translations[raw_word] || raw_word;
 
+            // 1. Δείχνει τη λέξη στην οθόνη
             document.getElementById("subtitle").innerText = greek_word;
-            speakWord(greek_word);
+            
+            // 2. Παίζει το σωστό αρχείο ήχου
+            playCustomAudio(raw_word);
         });
 
-        function speakWord(text) {
+        function playCustomAudio(wordCode) {
             is_speaking = true;
-            const msg = new SpeechSynthesisUtterance();
-            msg.text = text;
-            msg.lang = 'el-GR';
             
-            msg.onend = function() {
+            // Διαβάζει τι έχει διαλέξει ο χρήστης από το μενού (female ή male)
+            const selectedVoice = document.getElementById('voice-select').value;
+            
+            // Ψάχνει το αρχείο στον κατάλογό μας
+            if (audioFiles[wordCode] && audioFiles[wordCode][selectedVoice]) {
+                const fileName = audioFiles[wordCode][selectedVoice];
+                const audio = new Audio(fileName);
+                
+                audio.play().catch(e => console.log("Πρόβλημα με την αναπαραγωγή ήχου:", e));
+                
+                audio.onended = function() {
+                    setTimeout(() => {
+                        is_speaking = false;
+                        document.getElementById("subtitle").innerText = "Περιμένω κίνηση...";
+                    }, 1000); // Παύση ενός δευτερολέπτου πριν πιάσει επόμενη κίνηση
+                };
+            } else {
+                // Αν δεν βρει ήχο (π.χ. είναι κάποια άλλη λέξη), απλά περιμένει 2 δευτερόλεπτα
                 setTimeout(() => {
                     is_speaking = false;
                     document.getElementById("subtitle").innerText = "Περιμένω κίνηση...";
-                }, 1500);
-            };
-            window.speechSynthesis.speak(msg);
+                }, 2000);
+            }
         }
 
-        // MEDIAPIPE ΚΑΜΕΡΑ
+        // 2. MEDIAPIPE ΚΑΜΕΡΑ
         const videoElement = document.getElementById('input_video');
         const hands = new Hands({locateFile: (file) => {
             return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
