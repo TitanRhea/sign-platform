@@ -1,178 +1,119 @@
-import cv2
-import numpy as np
-import time
-import threading
-import winsound 
-import os
-from collections import deque
-import mediapipe as mp
-import math
-
-# --- ΣΥΣΤΗΜΑ ΗΧΟΥ ---
-word_queue = []
-speak_now_queue = deque()
-current_voice = "Female"  
-
-def speech_thread():
-    global current_voice
-    while True:
-        if len(speak_now_queue) > 0:
-            phrase = speak_now_queue.popleft()
-            gender = current_voice.lower()
-            sound_map = {
-                "καλημέρα": "kalimera",
-                "ευχαριστώ": "efharisto",
-                "γεια": "geia",
-                "καλό μεσημέρι": "kalo_mesimeri",
-                "ποιο είναι το όνομά σου": "poio.einai.to.onoma.sou"
-            }
-            base = sound_map.get(phrase, "")
-            if base:
-                f = f"{base}.{gender}"
-                if os.path.exists(f): winsound.PlaySound(f, winsound.SND_FILENAME)
-                elif os.path.exists(f + ".wav"): winsound.PlaySound(f + ".wav", winsound.SND_FILENAME)
-        time.sleep(0.05)
-
-threading.Thread(target=speech_thread, daemon=True).start()
-
-# --- MEDIAPIPE ---
-mp_hands = mp.solutions.hands
-hands = mp_hands.Hands(min_detection_confidence=0.7, min_tracking_confidence=0.7)
-mp_draw = mp.solutions.drawing_utils
-
-cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-
-# --- ΣΤΑΘΕΡΟΠΟΙΗΤΗΣ (Το μυστικό για να μην λέει ό,τι να 'ναι) ---
-current_candidate = None
-consecutive_frames = 0
-REQUIRED_FRAMES = 12  # Πρέπει να δει ΤΗΝ ΙΔΙΑ κίνηση σταθερά!
-
-last_spoken_word = None
-last_spoken_time = 0
-
-wrist_x_history = deque(maxlen=15)
-
-print("\n🚀 SignAI: ΕΝΕΡΓΟΠΟΙΗΣΗ ΣΤΑΘΕΡΟΠΟΙΗΤΗ (Anti-Glitch)", flush=True)
-
-while True:
-    ret, frame = cap.read()
-    if not ret: break
-    frame = cv2.flip(frame, 1)
-    h, w, _ = frame.shape
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    results = hands.process(rgb)
-
-    active_now = None
-    h_cnt = 0
-    hands_data = []
-
-    if results.multi_hand_landmarks:
-        h_cnt = len(results.multi_hand_landmarks)
-        for i, lm in enumerate(results.multi_hand_landmarks):
-            mp_draw.draw_landmarks(frame, lm, mp_hands.HAND_CONNECTIONS)
-            wrist = lm.landmark[0]
-
-            # --- ΠΙΟ ΣΩΣΤΟΣ ΕΛΕΓΧΟΣ ΔΑΧΤΥΛΩΝ ---
-            # Συγκρίνουμε την άκρη (tip) με τη βάση της παλάμης (mcp - 5, 9, 13, 17)
-            def is_extended(tip, mcp):
-                d_tip = math.hypot(lm.landmark[tip].x - wrist.x, lm.landmark[tip].y - wrist.y)
-                d_mcp = math.hypot(lm.landmark[mcp].x - wrist.x, lm.landmark[mcp].y - wrist.y)
-                return d_tip > d_mcp
-
-            idx_ext = is_extended(8, 5)
-            mid_ext = is_extended(12, 9)
-            rng_ext = is_extended(16, 13)
-            pnk_ext = is_extended(20, 17)
-            
-            ext_count = sum([idx_ext, mid_ext, rng_ext, pnk_ext])
-            idx_only = (idx_ext and ext_count == 1)
-
-            # --- Έλεγχος Κίνησης (Μόνο για το 1ο χέρι) ---
-            is_waving = False
-            if i == 0: 
-                wrist_x_history.append(wrist.x)
-                if len(wrist_x_history) == 15:
-                    wave_amount = max(wrist_x_history) - min(wrist_x_history)
-                    if wave_amount > 0.05:
-                        is_waving = True
-
-            hands_data.append({
-                'ext_count': ext_count, 
-                'idx_only': idx_only, 
-                'is_waving': is_waving
-            })
-
-    # ==========================================
-    # 🔒 ΛΟΓΙΚΗ ΑΝΑΓΝΩΡΙΣΗΣ (Οι Δικλείδες σου)
-    # ==========================================
-    
-    if h_cnt == 1:
-        h1 = hands_data[0]
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8">
+    <title>SignAI | Live Recognition & Avatar</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f0e6dc; text-align: center; margin: 0; padding: 20px; }
+        .container { background: white; max-width: 900px; margin: auto; padding: 30px; border-radius: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
         
-        # Γεια: 3+ δάχτυλα ΚΑΙ κίνηση
-        if h1['ext_count'] >= 3 and h1['is_waving']: 
-            active_now = "γεια"
-            
-        # Μεσημέρι: 3+ δάχτυλα, ΑΚΙΝΗΤΟ
-        elif h1['ext_count'] >= 3 and not h1['is_waving']: 
-            active_now = "καλό μεσημέρι"
-            
-        # Καλημέρα: Μόνο ο δείκτης
-        elif h1['idx_only']: 
-            active_now = "καλημέρα"
+        /* Περιοχή Αβατάρ */
+        #avatar-container {
+            width: 350px; height: 350px; margin: 20px auto;
+            background: #fff; border-radius: 20px; border: 4px solid #27ae60;
+            display: flex; align-items: center; justify-content: center;
+            overflow: hidden; position: relative;
+        }
+        #avatar-img { width: 100%; height: 100%; object-fit: contain; transition: transform 0.2s; }
 
-    elif h_cnt == 2:
-        h1, h2 = hands_data[0], hands_data[1]
+        .status-box { font-size: 26px; font-weight: bold; color: #2ecc71; margin: 20px; min-height: 50px; text-transform: uppercase; }
+        .controls { margin-top: 20px; background: #f9f9f9; padding: 20px; border-radius: 15px; }
+        select { padding: 10px; border-radius: 8px; border: 1px solid #ddd; font-size: 16px; }
         
-        # Όνομα: Κάποιο χέρι έχει μόνο τον δείκτη (για κυκλάκια/δείξιμο)
-        if h1['idx_only'] or h2['idx_only']:
-            active_now = "ποιο είναι το όνομά σου"
-            
-        # Ευχαριστώ: 2 χέρια, κανένα δεν έχει δείκτη (παλάμες ή μπουνιές)
-        elif not h1['idx_only'] and not h2['idx_only']:
-            active_now = "ευχαριστώ"
+        .pulse { animation: pulse-animation 0.5s ease-in-out; }
+        @keyframes pulse-animation {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
 
-    # ==========================================
-    # 🛡️ ΣΤΑΘΕΡΟΠΟΙΗΤΗΣ (ANTI-GLITCH)
-    # ==========================================
-    if active_now:
-        if active_now == current_candidate:
-            consecutive_frames += 1
-        else:
-            current_candidate = active_now
-            consecutive_frames = 1
-            
-        # Αν είδε την ίδια κίνηση σταθερά για 12 καρέ (~0.5 sec)
-        if consecutive_frames >= REQUIRED_FRAMES:
-            # Και αν έχουν περάσει 3 δευτερόλεπτα από την τελευταία φορά που μίλησε
-            if active_now != last_spoken_word or (time.time() - last_spoken_time > 3.0):
-                word_queue.append(active_now)
-                speak_now_queue.append(active_now)
-                print(f"✅ [FINAL] Ειπώθηκε: {active_now}", flush=True)
-                
-                last_spoken_word = active_now
-                last_spoken_time = time.time()
-                consecutive_frames = 0 # Μηδενισμός
-    else:
-        consecutive_frames = 0
-        current_candidate = None
-
-    # --- UI & ΣΧΕΔΙΑΣΜΟΣ ΣΤΗΝ ΟΘΟΝΗ ---
-    if current_candidate and consecutive_frames > 0:
-        # Δείχνει το ποσοστό "Κλειδώματος" της λέξης
-        progress = int((consecutive_frames / REQUIRED_FRAMES) * 100)
-        cv2.putText(frame, f"Locking {current_candidate}... {progress}%", (20, 80), 1, 1.2, (0, 165, 255), 2)
+<div class="container">
+    <h2>🤖 SignAI | Σύνδεση με Αβατάρ</h2>
     
-    if word_queue:
-        cv2.rectangle(frame, (w//2-180, h-70), (w//2+180, h-10), (0, 255, 0), -1)
-        cv2.putText(frame, word_queue[-1].upper(), (w//2-140, h-25), 1, 1.8, (0, 0, 0), 2)
+    <div class="controls">
+        <label>Επιλογή Φωνής: </label>
+        <select id="voice-type">
+            <option value="female">Γυναικεία Φωνή</option>
+            <option value="male">Αντρική Φωνή</option>
+        </select>
+    </div>
 
-    cv2.imshow('SignAI Monitor', frame)
+    <div id="avatar-container">
+        <img id="avatar-img" src="avatar_neutral.png" alt="Avatar">
+    </div>
+
+    <div id="status" class="status-box">ΠΕΡΙΜΕΝΩ ΤΟΝ SERVER...</div>
     
-    key = cv2.waitKey(1) & 0xFF
-    if key == ord('q'): break
-    elif key == ord('1'): current_voice = "Female"
-    elif key == ord('2'): current_voice = "Male"
+    <p style="color: #888;">Βεβαιωθείτε ότι το <b>app.py</b> εκτελείται στον υπολογιστή σας.</p>
+</div>
 
-cap.release()
-cv2.destroyAllWindows()
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+
+<script>
+    // Σύνδεση με τον Python Server που τρέχει τοπικά
+    const socket = io("http://localhost:5000");
+    const statusDiv = document.getElementById("status");
+    const avatarImg = document.getElementById("avatar-img");
+
+    socket.on('connect', () => {
+        statusDiv.innerText = "ΕΤΟΙΜΟΣ ΓΙΑ ΑΝΑΓΝΩΡΙΣΗ";
+        statusDiv.style.color = "#27ae60";
+    });
+
+    socket.on('disconnect', () => {
+        statusDiv.innerText = "ΑΠΟΣΥΝΔΕΘΗΚΕ Ο SERVER";
+        statusDiv.style.color = "#e74c3c";
+    });
+
+    // Λήψη λέξης από την Python
+    socket.on('new_sign', function(data) {
+        const word = data.word;
+        console.log("Αναγνωρίστηκε:", word);
+        
+        // 1. Ενημέρωση Κειμένου
+        let displayText = word;
+        if (word === "onoma") displayText = "Ποιο είναι το όνομά σου;";
+        statusDiv.innerText = displayText;
+
+        // 2. Ήχος
+        playAudio(word);
+
+        // 3. Κίνηση Αβατάρ
+        animateAvatar(word);
+    });
+
+    function playAudio(word) {
+        const voice = document.getElementById("voice-type").value;
+        let filename = word;
+        if (word === "onoma") filename = "poio.einai.to.onoma.sou";
+        
+        let audio = new Audio(filename + "." + voice + ".wav");
+        audio.play().catch(err => console.log("Δεν βρέθηκε το αρχείο ήχου: " + filename));
+    }
+
+    function animateAvatar(word) {
+        // Εφέ παλμού στην εικόνα
+        avatarImg.classList.remove("pulse");
+        void avatarImg.offsetWidth; // trigger reflow
+        avatarImg.classList.add("pulse");
+
+        // Αλλαγή εικόνας ανάλογα με τη λέξη (προαιρετικά)
+        // Αν έχεις εικόνες π.χ. avatar_geia.png, avatar_kalimera.png κλπ.
+        const originalSrc = "avatar_neutral.png";
+        const wordSrc = "avatar_" + word + ".png";
+
+        // Δοκιμάζει να αλλάξει εικόνα για 1.5 δευτερόλεπτο και μετά γυρνάει στην αρχική
+        let tempImg = new Image();
+        tempImg.src = wordSrc;
+        tempImg.onload = () => {
+            avatarImg.src = wordSrc;
+            setTimeout(() => { avatarImg.src = originalSrc; }, 1500);
+        };
+    }
+</script>
+
+</body>
+</html>
